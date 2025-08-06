@@ -30,6 +30,22 @@ _Note: IBind currently supports only the Web API 1.0 since the [newer Web API][w
 pip install ibind
 ```
 
+## Distribution
+
+To build a source and wheel distribution run:
+
+```bash
+python -m build
+```
+
+Packages will appear in the `dist/` folder.
+
+### Starting the REST service on Windows
+
+```powershell
+py -m uvicorn ibind.rest_service:app --host 127.0.0.1 --port 8000
+```
+
 ## Authentication
 
 IBind supports fully headless authentication using [OAuth 1.0a][wiki-oauth1a]. This means no longer needing to run any type software to communicate with IBKR API.
