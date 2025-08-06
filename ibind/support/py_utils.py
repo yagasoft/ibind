@@ -333,8 +333,8 @@ def print_table(my_dict, column_order=None):
 
 def patch_dotenv():
     try:
-        import dotenv
-        from dotenv import load_dotenv
+        import dotenv  # noqa: PLC0415
+        from dotenv import load_dotenv  # noqa: PLC0415
 
         # Wrap the original load_dotenv function
         def warn_if_late_load(*args, **kwargs):
