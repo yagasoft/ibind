@@ -93,7 +93,7 @@ conidex = f"{_SPREAD_CONIDS[currency]};;;"
 leg_strings = []
 for leg in legs:
     multiplier = 1 if leg['side'] == "BUY" else -1
-    leg_string = f'{leg['conid']}/{leg['ratio'] * multiplier}'
+    leg_string = f"{leg['conid']}/{leg['ratio'] * multiplier}"
     leg_strings.append(leg_string)
 
 conidex = conidex + ",".join(leg_strings)

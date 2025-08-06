@@ -305,7 +305,7 @@ class RestClient:
           executed after the shutdown process.
         """
 
-        import signal
+        import signal  # noqa: PLC0415
 
         existing_handler_int = signal.getsignal(signal.SIGINT)
         existing_handler_term = signal.getsignal(signal.SIGTERM)
