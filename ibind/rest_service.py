@@ -71,7 +71,6 @@ async def get_health() -> Any:
         'gateway': client.check_health(),
         'authentication': client.authentication_status().data,
     }
-    await _send_event('/health', status)
     return status
 
 

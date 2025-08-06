@@ -80,9 +80,36 @@
       }
 
       async function updateHealth() {
-        const res = await fetch('/health');
-        const data = await res.json();
-        renderHealth(data);
+		  let data;
+
+		  try
+		  {
+			  const res = await fetch('/health');
+
+			  // Treat non-2xx responses as failures
+			  if (!res.ok)
+			  {
+				  throw new Error(`HTTP ${res.status}`);
+			  }
+
+			  // This may throw if the body is not valid JSON
+			  data = await res.json();
+		  } catch (err)
+		  {
+			  // Fallback object: adapt the shape to whatever renderHealth expects
+			  data = {
+				  gateway: false,
+				  authentication: {
+					  authenticated: false,
+					  connected: false,
+					  competing: true
+				  }
+				};
+			  console.error('Failed to fetch health data:', err);
+		  }
+
+		  // Always called, no duplication
+		  renderHealth(data);
       }
 
       ws.onmessage = (ev) => {
