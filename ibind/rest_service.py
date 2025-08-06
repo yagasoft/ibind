@@ -46,6 +46,7 @@ async def startup_event() -> None:
         client.account_id = accounts[0].get('accountId')
     client.receive_brokerage_accounts()
     await _send_event('startup', accounts)
+    await get_health()
 
 
 @app.get('/monitor', response_class=HTMLResponse)
@@ -70,7 +71,6 @@ async def get_health() -> Any:
         'gateway': client.check_health(),
         'authentication': client.authentication_status().data,
     }
-    await _send_event('/health', status)
     return status
 
 

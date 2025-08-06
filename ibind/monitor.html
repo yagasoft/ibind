@@ -3,18 +3,125 @@
   <head>
     <meta charset='utf-8'/>
     <title>IBind Monitor</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #1e1e1e;
+        color: #eee;
+      }
+      #health {
+        display: flex;
+        gap: 1rem;
+        padding: 0.5rem 1rem;
+        background: #2c2c2c;
+        border-bottom: 1px solid #444;
+      }
+      .health-item {
+        display: flex;
+        align-items: center;
+        font-size: 0.9rem;
+      }
+      .status {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 0.4rem;
+        background: #666;
+      }
+      .green { background: #4caf50; }
+      .yellow { background: #ffc107; }
+      .red { background: #f44336; }
+      #log {
+        list-style: none;
+        margin: 0;
+        padding: 0 1rem;
+        max-height: calc(100vh - 60px);
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 0.85rem;
+      }
+      #log li {
+        padding: 2px 0;
+        border-bottom: 1px solid #333;
+      }
+    </style>
   </head>
   <body>
-    <h1>IBind Monitor</h1>
-    <ul id='feed'></ul>
+    <div id='health'>
+      <div class='health-item'><span id='gateway-status' class='status'></span>Gateway</div>
+      <div class='health-item'><span id='auth-status' class='status'></span>Authenticated</div>
+      <div class='health-item'><span id='connected-status' class='status'></span>Connected</div>
+      <div class='health-item'><span id='competing-status' class='status'></span>Competing</div>
+    </div>
+    <ul id='log'></ul>
     <script>
-      const feed = document.getElementById('feed');
+      const log = document.getElementById('log');
       const ws = new WebSocket(`ws://${location.host}/ws`);
-      ws.onmessage = (ev) => {
+
+      function addLog(msg) {
         const li = document.createElement('li');
-        li.textContent = ev.data;
-        feed.appendChild(li);
+        li.textContent = `[${msg.time}] ${msg.endpoint} ${JSON.stringify(msg.data)} `;
+        log.appendChild(li);
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function setStatus(id, val) {
+        const el = document.getElementById(id);
+        el.className = 'status ' + (val === true ? 'green' : val === false ? 'red' : 'yellow');
+      }
+
+      function renderHealth(data) {
+        setStatus('gateway-status', data.gateway);
+        const auth = data.authentication || {};
+        setStatus('auth-status', auth.authenticated);
+        setStatus('connected-status', auth.connected);
+        setStatus('competing-status', !auth.competing);
+      }
+
+      async function updateHealth() {
+		  let data;
+
+		  try
+		  {
+			  const res = await fetch('/health');
+
+			  // Treat non-2xx responses as failures
+			  if (!res.ok)
+			  {
+				  throw new Error(`HTTP ${res.status}`);
+			  }
+
+			  // This may throw if the body is not valid JSON
+			  data = await res.json();
+		  } catch (err)
+		  {
+			  // Fallback object: adapt the shape to whatever renderHealth expects
+			  data = {
+				  gateway: false,
+				  authentication: {
+					  authenticated: false,
+					  connected: false,
+					  competing: true
+				  }
+				};
+			  console.error('Failed to fetch health data:', err);
+		  }
+
+		  // Always called, no duplication
+		  renderHealth(data);
+      }
+
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        addLog(msg);
+        if (msg.endpoint === '/health') {
+          renderHealth(msg.data);
+        }
       };
+
+      setInterval(updateHealth, 5000);
+      updateHealth();
     </script>
   </body>
 </html>
