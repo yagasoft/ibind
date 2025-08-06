@@ -1,0 +1,18 @@
+# Requirements for IBKR RESTful Web Service
+# Add this to your existing requirements.txt or create requirements-service.txt
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Validation and serialization
+pydantic>=2.4.0
+
+# CORS support
+python-multipart>=0.0.6
+
+# The main IBind library (assuming it's already installed)
+# ibind[oauth]  # Uncomment if not already installed
+
+# Optional: For enhanced logging and monitoring
+structlog>=23.2.0
