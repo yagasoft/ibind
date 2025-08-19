@@ -208,6 +208,7 @@ class IbkrClient(RestClient, AccountsMixin, ContractMixin, MarketdataMixin, Orde
             raise RuntimeError('Live session token validation failed.')
 
         if maintain_oauth:
+            _LOGGER.info(f'{self}: Starting Tickler to maintain the connection alive')
             self.start_tickler()
 
         if init_brokerage_session:

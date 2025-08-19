@@ -5,6 +5,8 @@ from dataclasses import dataclass, field, fields
 from typing import Optional, Dict, Union, TYPE_CHECKING
 from warnings import warn
 
+from pydantic import ConfigDict
+
 from ibind.base.rest_client import Result, pass_result
 from ibind.client.ibkr_definitions import decode_data_availability
 from ibind.support.errors import ExternalBrokerError
@@ -345,7 +347,6 @@ def handle_questions(original_result: Result, answers: Answers, reply_callback: 
             )
 
     raise RuntimeError(f'Too many questions: {original_result}: {questions}')
-
 
 @dataclass
 class OrderRequest:

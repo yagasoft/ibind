@@ -62,7 +62,7 @@
 
 		.log-entry {
 			display: grid;
-			grid-template-columns: 140px 120px 1fr;
+			grid-template-columns: 140px 130px auto auto;
 			gap: 0.5rem;
 			padding: 0.25rem 0.75rem;
 			border-bottom: 1px solid #2a2a2a;
@@ -78,6 +78,7 @@
 
 		.log-endpoint {
 			color: #4ea1ff;
+			word-wrap: break-word;
 		}
 
 		.log-data {
@@ -101,6 +102,14 @@
 		const log = document.getElementById('log');
 		const ws = new WebSocket(`ws://${location.host}/ws`);
 
+		let autoScroll = true; // Track whether to auto-scroll
+
+		// Detect if user scrolls away from bottom
+		log.addEventListener('scroll', () =>
+		{
+			autoScroll = log.scrollHeight - log.scrollTop <= log.clientHeight + 1;
+		});
+		
 		function addLog(msg)
 		{
 			const entry = document.createElement('div');
@@ -108,14 +117,20 @@
 			entry.innerHTML = `
           <span class='log-time'>${msg.time}</span>
           <span class='log-endpoint'>${msg.endpoint}</span>
-          <span class='log-data'>${JSON.stringify(msg.data)}</span>
+          <span class='log-data'>${JSON.stringify(msg.data, null, "\t")}</span>
+          <span class='log-data'>${msg.req == null || msg.req == "" ? "" :  JSON.stringify(msg.req, null, "\t")}</span>
         `;
 			log.appendChild(entry);
+
 			if (log.childElementCount > 500)
 			{
 				log.removeChild(log.firstChild);
 			}
-			log.scrollTop = log.scrollHeight;
+
+			if (autoScroll)
+			{
+				log.scrollTop = log.scrollHeight;
+			}
 		}
 
 		function setStatus(id, val)
