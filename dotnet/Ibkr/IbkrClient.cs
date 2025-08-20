@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Ibkr.OAuth;
 using Ibkr.Models;
@@ -57,7 +58,7 @@ public class IbkrClient : RestClient
     }
 
     // Session & health
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true, Converters = { new JsonStringEnumConverter() } };
 
     public async Task<bool> CheckHealthAsync()
     {
@@ -99,12 +100,12 @@ public class IbkrClient : RestClient
     }
 
     // Portfolio
-    public async Task<Result<List<PortfolioSummaryItem>>> PortfolioSummaryAsync(string? accountId = null)
+    public async Task<Result<PortfolioSummary>> PortfolioSummaryAsync(string? accountId = null)
     {
         accountId ??= AccountId;
         var res = await GetAsync($"portfolio/{accountId}/summary");
-        var data = JsonSerializer.Deserialize<List<PortfolioSummaryItem>>(res.Data.RootElement.GetRawText(), JsonOptions);
-        return new Result<List<PortfolioSummaryItem>>(data, res.Request);
+        var data = JsonSerializer.Deserialize<PortfolioSummary>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<PortfolioSummary>(data, res.Request);
     }
 
     public async Task<Result<PositionInfo>> PositionAndContractInfoAsync(string conid)
