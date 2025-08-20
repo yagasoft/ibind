@@ -154,7 +154,9 @@ public static class OAuth1aHelper
 
     private static string GenerateDhChallenge(string dhPrime, string dhRandom, int generator)
     {
-        var dh = BigInteger.ModPow(new BigInteger(generator), BigInteger.Parse(dhRandom, System.Globalization.NumberStyles.HexNumber), BigInteger.Parse(dhPrime, System.Globalization.NumberStyles.HexNumber));
+        var dhRandomInt = BigInteger.Parse("00" + dhRandom, System.Globalization.NumberStyles.HexNumber);
+        var dhPrimeInt = BigInteger.Parse("00" + dhPrime, System.Globalization.NumberStyles.HexNumber);
+        var dh = BigInteger.ModPow(new BigInteger(generator), dhRandomInt, dhPrimeInt);
         return dh.ToString("x");
     }
 
@@ -167,9 +169,10 @@ public static class OAuth1aHelper
 
     private static string CalculateLiveSessionToken(string dhPrime, string dhRandom, string dhResponse, string prepend)
     {
-        var dhRandomInt = BigInteger.Parse(dhRandom, System.Globalization.NumberStyles.HexNumber);
-        var dhResponseInt = BigInteger.Parse(dhResponse, System.Globalization.NumberStyles.HexNumber);
-        var sharedSecret = BigInteger.ModPow(dhResponseInt, dhRandomInt, BigInteger.Parse(dhPrime, System.Globalization.NumberStyles.HexNumber));
+        var dhRandomInt = BigInteger.Parse("00" + dhRandom, System.Globalization.NumberStyles.HexNumber);
+        var dhResponseInt = BigInteger.Parse("00" + dhResponse, System.Globalization.NumberStyles.HexNumber);
+        var dhPrimeInt = BigInteger.Parse("00" + dhPrime, System.Globalization.NumberStyles.HexNumber);
+        var sharedSecret = BigInteger.ModPow(dhResponseInt, dhRandomInt, dhPrimeInt);
         var key = ToByteArray(sharedSecret);
         using var hmac = new HMACSHA1(key);
         var accessBytes = HexToBytes(prepend);
@@ -191,7 +194,7 @@ public static class OAuth1aHelper
         var hex = x.ToString("x");
         if (hex.Length % 2 == 1) hex = "0" + hex;
         var list = new List<byte>();
-        if ((x.ToByteArray(isUnsigned:true, isBigEndian:true).Length * 8) % 8 == 0)
+        if (x.GetBitLength() % 8 == 0)
             list.Add(0);
         for (int i=0;i<hex.Length;i+=2)
             list.Add(Convert.ToByte(hex.Substring(i,2),16));
