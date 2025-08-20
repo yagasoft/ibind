@@ -57,6 +57,7 @@ public class LiveOrder
 public class LiveOrdersResponse
 {
     public List<LiveOrder> Orders { get; set; } = new();
+    public bool Snapshot { get; set; }
 }
 
 public class PlaceOrderRequest

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -37,6 +38,7 @@ public class IbkrClient : RestClient
             var lst = OAuth1aHelper.RequestLiveSessionTokenAsync(this, _oauthConfig).GetAwaiter().GetResult();
             _liveSessionToken = lst.Token;
             _liveSessionTokenExpires = lst.Expires;
+	        InitializeBrokerageSession().GetAwaiter().GetResult();
         }
     }
 
@@ -84,6 +86,19 @@ public class IbkrClient : RestClient
         return new Result<AuthenticationStatusResponse>(data, res.Request);
     }
 
+	public async Task<Result<object>> InitializeBrokerageSession()
+	{
+		var body =
+			new Dictionary<string, object?>
+			{
+				["publish"] = true,
+				["compete"] = true
+			};
+		var res = await PostAsync("iserver/auth/ssodh/init", body);
+		var o = JsonSerializer.Deserialize<object>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+		return new Result<object>(o, res.Request);
+	}
+
     // Accounts
     public async Task<Result<List<PortfolioAccount>>> PortfolioAccountsAsync()
     {
@@ -108,11 +123,11 @@ public class IbkrClient : RestClient
         return new Result<PortfolioSummary>(data, res.Request);
     }
 
-    public async Task<Result<PositionInfo>> PositionAndContractInfoAsync(string conid)
+    public async Task<Result<IDictionary<string, List<PositionInfo>>>> PositionAndContractInfoAsync(string conid)
     {
         var res = await GetAsync($"portfolio/positions/{conid}");
-        var data = JsonSerializer.Deserialize<PositionInfo>(res.Data.RootElement.GetRawText(), JsonOptions);
-        return new Result<PositionInfo>(data, res.Request);
+        var data = JsonSerializer.Deserialize<IDictionary<string, List<PositionInfo>>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<IDictionary<string, List<PositionInfo>>>(data, res.Request);
     }
 
     public async Task<Result<List<PositionInfo>>> PositionsByConidAsync(string? accountId, string conid)
@@ -135,7 +150,7 @@ public class IbkrClient : RestClient
         return new Result<SecurityStocksBySymbolResponse>(resp, result.Request);
     }
 
-    public async Task<Result<SearchContractRulesResponse>> SearchContractRulesAsync(SearchContractRulesRequest request)
+    public async Task<Result<ContractRule>> SearchContractRulesAsync(SearchContractRulesRequest request)
     {
         var body = new Dictionary<string, object?> { ["conid"] = request.Conid };
         if (request.Exchange != null) body["exchange"] = request.Exchange;
@@ -143,31 +158,26 @@ public class IbkrClient : RestClient
         if (request.ModifyOrder != null) body["modifyOrder"] = request.ModifyOrder;
         if (request.OrderId != null) body["orderId"] = request.OrderId;
         var res = await PostAsync("iserver/contract/rules", body);
-        var rules = JsonSerializer.Deserialize<List<ContractRule>>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
-        var resp = new SearchContractRulesResponse { Rules = rules };
-        return new Result<SearchContractRulesResponse>(resp, res.Request);
+        var rules = JsonSerializer.Deserialize<ContractRule>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        return new Result<ContractRule>(rules, res.Request);
     }
 
     // Market data
-    public async Task<Result<LiveMarketdataSnapshotResponse>> LiveMarketdataSnapshotAsync(LiveMarketdataSnapshotRequest request)
+    public async Task<Result<List<MarketDataSnapshot>>> LiveMarketdataSnapshotAsync(LiveMarketdataSnapshotRequest request)
     {
-        var query = new Dictionary<string,string>{{"conids", string.Join(",", request.Conids)}, {"fields", string.Join(",", request.Fields)}};
-        var res = await GetAsync("iserver/marketdata/snapshot", query);
-        var snapshots = new List<MarketDataSnapshot>();
-        foreach (var el in res.Data.RootElement.EnumerateArray())
-        {
-            var snap = new MarketDataSnapshot { Conid = el.GetProperty("conid").GetInt64() };
-            var data = new Dictionary<string,string>();
-            foreach (var prop in el.EnumerateObject())
-            {
-                if (prop.NameEquals("conid")) continue;
-                data[prop.Name] = prop.Value.ToString();
-            }
-            snap.Data = data;
-            snapshots.Add(snap);
-        }
-        var resp = new LiveMarketdataSnapshotResponse { Snapshots = snapshots };
-        return new Result<LiveMarketdataSnapshotResponse>(resp, res.Request);
+	    var query =
+		    new Dictionary<string, IReadOnlyList<string>>
+			{
+				["conids"] = request.Conids,
+				["fields"] = request.Fields
+					.Distinct().Select(f => ((int)f).ToString(CultureInfo.InvariantCulture)).ToArray()
+			};
+
+	    var res = await GetAsync("iserver/marketdata/snapshot", query);
+	    var snapshots = JsonSerializer.Deserialize<List<MarketDataSnapshot>>(
+		    res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+
+	    return new Result<List<MarketDataSnapshot>>(snapshots, res.Request);
     }
 
     // Orders
@@ -182,15 +192,14 @@ public class IbkrClient : RestClient
             if (request.AccountId != null) query["accountId"] = request.AccountId;
         }
         var res = await GetAsync("iserver/account/orders", query);
-        var orders = JsonSerializer.Deserialize<List<LiveOrder>>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
-        var resp = new LiveOrdersResponse { Orders = orders };
-        return new Result<LiveOrdersResponse>(resp, res.Request);
+        var orders = JsonSerializer.Deserialize<LiveOrdersResponse>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        return new Result<LiveOrdersResponse>(orders, res.Request);
     }
 
     public async Task<Result<List<PlaceOrderResponse>>> PlaceOrderAsync(PlaceOrderRequest request, string? accountId = null)
     {
         accountId ??= AccountId;
-        var parsed = request.Orders.Select(o => OrderUtils.ParseOrderRequest(o)).ToList();
+        var parsed = request.Orders.Select(OrderUtils.ParseOrderRequest).ToList();
         var body = new Dictionary<string, object?> { ["orders"] = parsed };
         if (request.Answers != null && request.Answers.Count > 0) body["answers"] = request.Answers;
         var res = await PostAsync($"iserver/account/{accountId}/orders", body);
