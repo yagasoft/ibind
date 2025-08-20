@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Ibkr.OAuth;
 using Ibkr.Models;
@@ -36,6 +38,7 @@ public class IbkrClient : RestClient
             var lst = OAuth1aHelper.RequestLiveSessionTokenAsync(this, _oauthConfig).GetAwaiter().GetResult();
             _liveSessionToken = lst.Token;
             _liveSessionTokenExpires = lst.Expires;
+	        InitializeBrokerageSession().GetAwaiter().GetResult();
         }
     }
 
@@ -57,6 +60,8 @@ public class IbkrClient : RestClient
     }
 
     // Session & health
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true, Converters = { new JsonStringEnumConverter() } };
+
     public async Task<bool> CheckHealthAsync()
     {
         try
@@ -74,74 +79,131 @@ public class IbkrClient : RestClient
         }
     }
 
-    public Task<Result<JsonDocument>> AuthenticationStatusAsync()
-        => PostAsync("iserver/auth/status");
-
-    // Accounts
-    public Task<Result<JsonDocument>> PortfolioAccountsAsync()
-        => GetAsync("portfolio/accounts");
-
-    public Task<Result<JsonDocument>> ReceiveBrokerageAccountsAsync()
-        => GetAsync("iserver/accounts");
-
-    // Portfolio
-    public Task<Result<JsonDocument>> PortfolioSummaryAsync(string? accountId = null)
+    public async Task<Result<AuthenticationStatusResponse>> AuthenticationStatusAsync()
     {
-        accountId ??= AccountId;
-        return GetAsync($"portfolio/{accountId}/summary");
+        var res = await PostAsync("iserver/auth/status");
+        var data = JsonSerializer.Deserialize<AuthenticationStatusResponse>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<AuthenticationStatusResponse>(data, res.Request);
     }
 
-    public Task<Result<JsonDocument>> PositionAndContractInfoAsync(string conid)
-        => GetAsync($"portfolio/positions/{conid}");
+	public async Task<Result<object>> InitializeBrokerageSession()
+	{
+		var body =
+			new Dictionary<string, object?>
+			{
+				["publish"] = true,
+				["compete"] = true
+			};
+		var res = await PostAsync("iserver/auth/ssodh/init", body);
+		var o = JsonSerializer.Deserialize<object>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+		return new Result<object>(o, res.Request);
+	}
 
-    public Task<Result<JsonDocument>> PositionsByConidAsync(string? accountId, string conid)
+    // Accounts
+    public async Task<Result<List<PortfolioAccount>>> PortfolioAccountsAsync()
+    {
+        var res = await GetAsync("portfolio/accounts");
+        var data = JsonSerializer.Deserialize<List<PortfolioAccount>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<List<PortfolioAccount>>(data, res.Request);
+    }
+
+    public async Task<Result<BrokerageAccountsResponse>> ReceiveBrokerageAccountsAsync()
+    {
+        var res = await GetAsync("iserver/accounts");
+        var data = JsonSerializer.Deserialize<BrokerageAccountsResponse>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<BrokerageAccountsResponse>(data, res.Request);
+    }
+
+    // Portfolio
+    public async Task<Result<PortfolioSummary>> PortfolioSummaryAsync(string? accountId = null)
     {
         accountId ??= AccountId;
-        return GetAsync($"portfolio/{accountId}/position/{conid}");
+        var res = await GetAsync($"portfolio/{accountId}/summary");
+        var data = JsonSerializer.Deserialize<PortfolioSummary>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<PortfolioSummary>(data, res.Request);
+    }
+
+    public async Task<Result<IDictionary<string, List<PositionInfo>>>> PositionAndContractInfoAsync(string conid)
+    {
+        var res = await GetAsync($"portfolio/positions/{conid}");
+        var data = JsonSerializer.Deserialize<IDictionary<string, List<PositionInfo>>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<IDictionary<string, List<PositionInfo>>>(data, res.Request);
+    }
+
+    public async Task<Result<List<PositionInfo>>> PositionsByConidAsync(string? accountId, string conid)
+    {
+        accountId ??= AccountId;
+        var res = await GetAsync($"portfolio/{accountId}/position/{conid}");
+        var data = JsonSerializer.Deserialize<List<PositionInfo>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<List<PositionInfo>>(data, res.Request);
     }
 
     // Contract
-    public async Task<Result<JsonDocument>> SecurityStocksBySymbolAsync(IEnumerable<object> queries, bool? defaultFiltering = null)
+    public async Task<Result<SecurityStocksBySymbolResponse>> SecurityStocksBySymbolAsync(SecurityStocksBySymbolRequest request)
     {
-        var symbols = StockUtils.QueryToSymbols(queries);
+        var symbols = StockUtils.QueryToSymbols(request.Queries);
         var result = await GetAsync("trsrv/stocks", new Dictionary<string,string>{{"symbols", symbols}});
-        var filtered = StockUtils.FilterStocks(queries, result.Data, defaultFiltering ?? true);
-        var doc = JsonDocument.Parse(JsonSerializer.Serialize(filtered));
-        return new Result<JsonDocument>(doc, result.Request);
+        var filtered = StockUtils.FilterStocks(request.Queries, result.Data, request.DefaultFiltering ?? true);
+        var json = JsonSerializer.Serialize(filtered);
+        var stocks = JsonSerializer.Deserialize<Dictionary<string, List<SecurityDefinition>>>(json, JsonOptions)!;
+        var resp = new SecurityStocksBySymbolResponse { Stocks = stocks };
+        return new Result<SecurityStocksBySymbolResponse>(resp, result.Request);
     }
 
-    public Task<Result<JsonDocument>> SearchContractRulesAsync(string conid, string? exchange = null, bool? isBuy = null, bool? modifyOrder = null, int? orderId = null)
+    public async Task<Result<ContractRule>> SearchContractRulesAsync(SearchContractRulesRequest request)
     {
-        var body = new Dictionary<string, object?>{{"conid", conid}};
-        if (exchange != null) body["exchange"] = exchange;
-        if (isBuy != null) body["isBuy"] = isBuy;
-        if (modifyOrder != null) body["modifyOrder"] = modifyOrder;
-        if (orderId != null) body["orderId"] = orderId;
-        return PostAsync("iserver/contract/rules", body);
+        var body = new Dictionary<string, object?> { ["conid"] = request.Conid };
+        if (request.Exchange != null) body["exchange"] = request.Exchange;
+        if (request.IsBuy != null) body["isBuy"] = request.IsBuy;
+        if (request.ModifyOrder != null) body["modifyOrder"] = request.ModifyOrder;
+        if (request.OrderId != null) body["orderId"] = request.OrderId;
+        var res = await PostAsync("iserver/contract/rules", body);
+        var rules = JsonSerializer.Deserialize<ContractRule>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        return new Result<ContractRule>(rules, res.Request);
     }
 
     // Market data
-    public Task<Result<JsonDocument>> LiveMarketdataSnapshotAsync(IEnumerable<string> conids, IEnumerable<string> fields)
+    public async Task<Result<List<MarketDataSnapshot>>> LiveMarketdataSnapshotAsync(LiveMarketdataSnapshotRequest request)
     {
-        var query = new Dictionary<string,string>{{"conids", string.Join(",", conids)}, {"fields", string.Join(",", fields)}};
-        return GetAsync("iserver/marketdata/snapshot", query);
+	    var query =
+		    new Dictionary<string, IReadOnlyList<string>>
+			{
+				["conids"] = request.Conids,
+				["fields"] = request.Fields
+					.Distinct().Select(f => ((int)f).ToString(CultureInfo.InvariantCulture)).ToArray()
+			};
+
+	    var res = await GetAsync("iserver/marketdata/snapshot", query);
+	    var snapshots = JsonSerializer.Deserialize<List<MarketDataSnapshot>>(
+		    res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+
+	    return new Result<List<MarketDataSnapshot>>(snapshots, res.Request);
     }
 
     // Orders
-    public Task<Result<JsonDocument>> LiveOrdersAsync(IEnumerable<string>? filters = null, bool? force = null, string? accountId = null)
+    public async Task<Result<LiveOrdersResponse>> LiveOrdersAsync(LiveOrdersRequest? request = null)
     {
-        var query = new Dictionary<string,string>();
-        if (filters != null) query["filters"] = string.Join(",", filters);
-        if (force != null) query["force"] = force.Value ? "true" : "false";
-        if (accountId != null) query["accountId"] = accountId;
-        return GetAsync("iserver/account/orders", query.Count > 0 ? query : null);
+        Dictionary<string,string>? query = null;
+        if (request != null)
+        {
+            query = new Dictionary<string,string>();
+            if (request.Filters != null) query["filters"] = string.Join(",", request.Filters);
+            if (request.Force != null) query["force"] = request.Force.Value ? "true" : "false";
+            if (request.AccountId != null) query["accountId"] = request.AccountId;
+        }
+        var res = await GetAsync("iserver/account/orders", query);
+        var orders = JsonSerializer.Deserialize<LiveOrdersResponse>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        return new Result<LiveOrdersResponse>(orders, res.Request);
     }
 
-    public Task<Result<JsonDocument>> PlaceOrderAsync(IEnumerable<OrderRequest> orders, Dictionary<string,bool> answers, string? accountId = null)
+    public async Task<Result<List<PlaceOrderResponse>>> PlaceOrderAsync(PlaceOrderRequest request, string? accountId = null)
     {
         accountId ??= AccountId;
-        var parsed = orders.Select(o => OrderUtils.ParseOrderRequest(o)).ToList();
+        var parsed = request.Orders.Select(OrderUtils.ParseOrderRequest).ToList();
         var body = new Dictionary<string, object?> { ["orders"] = parsed };
-        return PostAsync($"iserver/account/{accountId}/orders", body);
+        if (request.Answers != null && request.Answers.Count > 0) body["answers"] = request.Answers;
+        var res = await PostAsync($"iserver/account/{accountId}/orders", body);
+        var data = JsonSerializer.Deserialize<List<PlaceOrderResponse>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<List<PlaceOrderResponse>>(data, res.Request);
     }
 }
