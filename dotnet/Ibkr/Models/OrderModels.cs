@@ -45,6 +45,12 @@ public class LiveOrdersResponse
     public List<LiveOrder> Orders { get; set; } = new();
 }
 
+public class PlaceOrderRequest
+{
+    public List<OrderRequest> Orders { get; set; } = new();
+    public Dictionary<string,bool>? Answers { get; set; }
+}
+
 public class PlaceOrderResponse
 {
     public long OrderId { get; set; }

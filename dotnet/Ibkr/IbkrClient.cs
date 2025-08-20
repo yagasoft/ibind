@@ -57,6 +57,8 @@ public class IbkrClient : RestClient
     }
 
     // Session & health
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     public async Task<bool> CheckHealthAsync()
     {
         try
@@ -74,74 +76,124 @@ public class IbkrClient : RestClient
         }
     }
 
-    public Task<Result<JsonDocument>> AuthenticationStatusAsync()
-        => PostAsync("iserver/auth/status");
-
-    // Accounts
-    public Task<Result<JsonDocument>> PortfolioAccountsAsync()
-        => GetAsync("portfolio/accounts");
-
-    public Task<Result<JsonDocument>> ReceiveBrokerageAccountsAsync()
-        => GetAsync("iserver/accounts");
-
-    // Portfolio
-    public Task<Result<JsonDocument>> PortfolioSummaryAsync(string? accountId = null)
+    public async Task<Result<AuthenticationStatusResponse>> AuthenticationStatusAsync()
     {
-        accountId ??= AccountId;
-        return GetAsync($"portfolio/{accountId}/summary");
+        var res = await PostAsync("iserver/auth/status");
+        var data = JsonSerializer.Deserialize<AuthenticationStatusResponse>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<AuthenticationStatusResponse>(data, res.Request);
     }
 
-    public Task<Result<JsonDocument>> PositionAndContractInfoAsync(string conid)
-        => GetAsync($"portfolio/positions/{conid}");
+    // Accounts
+    public async Task<Result<List<PortfolioAccount>>> PortfolioAccountsAsync()
+    {
+        var res = await GetAsync("portfolio/accounts");
+        var data = JsonSerializer.Deserialize<List<PortfolioAccount>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<List<PortfolioAccount>>(data, res.Request);
+    }
 
-    public Task<Result<JsonDocument>> PositionsByConidAsync(string? accountId, string conid)
+    public async Task<Result<BrokerageAccountsResponse>> ReceiveBrokerageAccountsAsync()
+    {
+        var res = await GetAsync("iserver/accounts");
+        var data = JsonSerializer.Deserialize<BrokerageAccountsResponse>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<BrokerageAccountsResponse>(data, res.Request);
+    }
+
+    // Portfolio
+    public async Task<Result<List<PortfolioSummaryItem>>> PortfolioSummaryAsync(string? accountId = null)
     {
         accountId ??= AccountId;
-        return GetAsync($"portfolio/{accountId}/position/{conid}");
+        var res = await GetAsync($"portfolio/{accountId}/summary");
+        var data = JsonSerializer.Deserialize<List<PortfolioSummaryItem>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<List<PortfolioSummaryItem>>(data, res.Request);
+    }
+
+    public async Task<Result<PositionInfo>> PositionAndContractInfoAsync(string conid)
+    {
+        var res = await GetAsync($"portfolio/positions/{conid}");
+        var data = JsonSerializer.Deserialize<PositionInfo>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<PositionInfo>(data, res.Request);
+    }
+
+    public async Task<Result<List<PositionInfo>>> PositionsByConidAsync(string? accountId, string conid)
+    {
+        accountId ??= AccountId;
+        var res = await GetAsync($"portfolio/{accountId}/position/{conid}");
+        var data = JsonSerializer.Deserialize<List<PositionInfo>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<List<PositionInfo>>(data, res.Request);
     }
 
     // Contract
-    public async Task<Result<JsonDocument>> SecurityStocksBySymbolAsync(IEnumerable<object> queries, bool? defaultFiltering = null)
+    public async Task<Result<SecurityStocksBySymbolResponse>> SecurityStocksBySymbolAsync(SecurityStocksBySymbolRequest request)
     {
-        var symbols = StockUtils.QueryToSymbols(queries);
+        var symbols = StockUtils.QueryToSymbols(request.Queries);
         var result = await GetAsync("trsrv/stocks", new Dictionary<string,string>{{"symbols", symbols}});
-        var filtered = StockUtils.FilterStocks(queries, result.Data, defaultFiltering ?? true);
-        var doc = JsonDocument.Parse(JsonSerializer.Serialize(filtered));
-        return new Result<JsonDocument>(doc, result.Request);
+        var filtered = StockUtils.FilterStocks(request.Queries, result.Data, request.DefaultFiltering ?? true);
+        var json = JsonSerializer.Serialize(filtered);
+        var stocks = JsonSerializer.Deserialize<Dictionary<string, List<SecurityDefinition>>>(json, JsonOptions)!;
+        var resp = new SecurityStocksBySymbolResponse { Stocks = stocks };
+        return new Result<SecurityStocksBySymbolResponse>(resp, result.Request);
     }
 
-    public Task<Result<JsonDocument>> SearchContractRulesAsync(string conid, string? exchange = null, bool? isBuy = null, bool? modifyOrder = null, int? orderId = null)
+    public async Task<Result<SearchContractRulesResponse>> SearchContractRulesAsync(SearchContractRulesRequest request)
     {
-        var body = new Dictionary<string, object?>{{"conid", conid}};
-        if (exchange != null) body["exchange"] = exchange;
-        if (isBuy != null) body["isBuy"] = isBuy;
-        if (modifyOrder != null) body["modifyOrder"] = modifyOrder;
-        if (orderId != null) body["orderId"] = orderId;
-        return PostAsync("iserver/contract/rules", body);
+        var body = new Dictionary<string, object?> { ["conid"] = request.Conid };
+        if (request.Exchange != null) body["exchange"] = request.Exchange;
+        if (request.IsBuy != null) body["isBuy"] = request.IsBuy;
+        if (request.ModifyOrder != null) body["modifyOrder"] = request.ModifyOrder;
+        if (request.OrderId != null) body["orderId"] = request.OrderId;
+        var res = await PostAsync("iserver/contract/rules", body);
+        var rules = JsonSerializer.Deserialize<List<ContractRule>>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        var resp = new SearchContractRulesResponse { Rules = rules };
+        return new Result<SearchContractRulesResponse>(resp, res.Request);
     }
 
     // Market data
-    public Task<Result<JsonDocument>> LiveMarketdataSnapshotAsync(IEnumerable<string> conids, IEnumerable<string> fields)
+    public async Task<Result<LiveMarketdataSnapshotResponse>> LiveMarketdataSnapshotAsync(LiveMarketdataSnapshotRequest request)
     {
-        var query = new Dictionary<string,string>{{"conids", string.Join(",", conids)}, {"fields", string.Join(",", fields)}};
-        return GetAsync("iserver/marketdata/snapshot", query);
+        var query = new Dictionary<string,string>{{"conids", string.Join(",", request.Conids)}, {"fields", string.Join(",", request.Fields)}};
+        var res = await GetAsync("iserver/marketdata/snapshot", query);
+        var snapshots = new List<MarketDataSnapshot>();
+        foreach (var el in res.Data.RootElement.EnumerateArray())
+        {
+            var snap = new MarketDataSnapshot { Conid = el.GetProperty("conid").GetInt64() };
+            var data = new Dictionary<string,string>();
+            foreach (var prop in el.EnumerateObject())
+            {
+                if (prop.NameEquals("conid")) continue;
+                data[prop.Name] = prop.Value.ToString();
+            }
+            snap.Data = data;
+            snapshots.Add(snap);
+        }
+        var resp = new LiveMarketdataSnapshotResponse { Snapshots = snapshots };
+        return new Result<LiveMarketdataSnapshotResponse>(resp, res.Request);
     }
 
     // Orders
-    public Task<Result<JsonDocument>> LiveOrdersAsync(IEnumerable<string>? filters = null, bool? force = null, string? accountId = null)
+    public async Task<Result<LiveOrdersResponse>> LiveOrdersAsync(LiveOrdersRequest? request = null)
     {
-        var query = new Dictionary<string,string>();
-        if (filters != null) query["filters"] = string.Join(",", filters);
-        if (force != null) query["force"] = force.Value ? "true" : "false";
-        if (accountId != null) query["accountId"] = accountId;
-        return GetAsync("iserver/account/orders", query.Count > 0 ? query : null);
+        Dictionary<string,string>? query = null;
+        if (request != null)
+        {
+            query = new Dictionary<string,string>();
+            if (request.Filters != null) query["filters"] = string.Join(",", request.Filters);
+            if (request.Force != null) query["force"] = request.Force.Value ? "true" : "false";
+            if (request.AccountId != null) query["accountId"] = request.AccountId;
+        }
+        var res = await GetAsync("iserver/account/orders", query);
+        var orders = JsonSerializer.Deserialize<List<LiveOrder>>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        var resp = new LiveOrdersResponse { Orders = orders };
+        return new Result<LiveOrdersResponse>(resp, res.Request);
     }
 
-    public Task<Result<JsonDocument>> PlaceOrderAsync(IEnumerable<OrderRequest> orders, Dictionary<string,bool> answers, string? accountId = null)
+    public async Task<Result<List<PlaceOrderResponse>>> PlaceOrderAsync(PlaceOrderRequest request, string? accountId = null)
     {
         accountId ??= AccountId;
-        var parsed = orders.Select(o => OrderUtils.ParseOrderRequest(o)).ToList();
+        var parsed = request.Orders.Select(o => OrderUtils.ParseOrderRequest(o)).ToList();
         var body = new Dictionary<string, object?> { ["orders"] = parsed };
-        return PostAsync($"iserver/account/{accountId}/orders", body);
+        if (request.Answers != null && request.Answers.Count > 0) body["answers"] = request.Answers;
+        var res = await PostAsync($"iserver/account/{accountId}/orders", body);
+        var data = JsonSerializer.Deserialize<List<PlaceOrderResponse>>(res.Data.RootElement.GetRawText(), JsonOptions);
+        return new Result<List<PlaceOrderResponse>>(data, res.Request);
     }
 }
