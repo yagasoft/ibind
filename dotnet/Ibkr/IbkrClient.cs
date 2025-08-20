@@ -196,10 +196,17 @@ public class IbkrClient : RestClient
         return new Result<LiveOrdersResponse>(orders, res.Request);
     }
 
-    public Task<Result<JsonDocument>> ReplyAsync(string replyId, bool confirmed)
+    internal Task<Result<JsonDocument>> ReplyRawAsync(string replyId, bool confirmed)
     {
         var body = new Dictionary<string, bool> { ["confirmed"] = confirmed };
         return PostAsync($"iserver/reply/{replyId}", body);
+    }
+
+    public async Task<Result<List<ReplyResponse>>> ReplyAsync(string replyId, bool confirmed)
+    {
+        var res = await ReplyRawAsync(replyId, confirmed);
+        var data = JsonSerializer.Deserialize<List<ReplyResponse>>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        return new Result<List<ReplyResponse>>(data, res.Request);
     }
 
     public async Task<Result<List<PlaceOrderResponse>>> PlaceOrderAsync(PlaceOrderRequest request, string? accountId = null)
@@ -210,7 +217,7 @@ public class IbkrClient : RestClient
         var res = await PostAsync($"iserver/account/{accountId}/orders", body);
         if (request.Answers != null && request.Answers.Count > 0)
         {
-            res = await QuestionUtils.HandleQuestionsAsync(res, request.Answers, ReplyAsync);
+            res = await QuestionUtils.HandleQuestionsAsync(res, request.Answers, ReplyRawAsync);
         }
         List<PlaceOrderResponse>? data;
         if (res.Data.RootElement.ValueKind == JsonValueKind.Array)
@@ -225,15 +232,19 @@ public class IbkrClient : RestClient
         return new Result<List<PlaceOrderResponse>>(data, res.Request);
     }
 
-    public Task<Result<JsonDocument>> SuppressMessagesAsync(IEnumerable<QuestionType> messageIds)
+    public async Task<Result<SubmitResponse>> SuppressMessagesAsync(IEnumerable<QuestionType> messageIds)
     {
         var ids = messageIds.Select(QuestionConstants.GetMessageId).ToArray();
         var body = new Dictionary<string, IEnumerable<string>> { ["messageIds"] = ids };
-        return PostAsync("iserver/questions/suppress", body);
+        var res = await PostAsync("iserver/questions/suppress", body);
+        var data = JsonSerializer.Deserialize<SubmitResponse>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        return new Result<SubmitResponse>(data, res.Request);
     }
 
-    public Task<Result<JsonDocument>> ResetSuppressedMessagesAsync()
+    public async Task<Result<SubmitResponse>> ResetSuppressedMessagesAsync()
     {
-        return PostAsync("iserver/questions/suppress/reset");
+        var res = await PostAsync("iserver/questions/suppress/reset");
+        var data = JsonSerializer.Deserialize<SubmitResponse>(res.Data.RootElement.GetRawText(), JsonOptions) ?? new();
+        return new Result<SubmitResponse>(data, res.Request);
     }
 }

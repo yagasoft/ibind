@@ -75,3 +75,15 @@ public class PlaceOrderResponse
     public string? Message { get; set; }
 }
 
+public class ReplyResponse
+{
+    [JsonPropertyName("order_id")]
+    public string OrderId { get; set; } = string.Empty;
+
+    [JsonPropertyName("order_status")]
+    public string OrderStatus { get; set; } = string.Empty;
+
+    [JsonPropertyName("encrypt_message")]
+    public string? EncryptMessage { get; set; }
+}
+
